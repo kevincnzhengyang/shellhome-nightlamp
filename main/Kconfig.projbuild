@@ -1,0 +1,112 @@
+menu "ShellHome Night Lamp Config"
+
+menu "Sensor"
+    config GPIO_VIBRATION
+        int "GPIO for Vibration Sensor"
+        range  0 39
+        default 39 if IDF_TARGET_ESP32
+        default 5 if IDF_TARGET_ESP32S2
+        default 9 if IDF_TARGET_ESP32S3
+endmenu
+
+menu "Buttons"
+    config GPIO_BTN_1
+        int "GPIO for Button 1"
+        range  0 15
+        default 0
+    config GPIO_BTN_2
+        int "GPIO for Button 2"
+        range 0 39
+        default 19
+endmenu
+
+menu "LED at the Top"
+    config GPIO_R
+        int "GPIO for Red"
+        range  0 39
+        default 16 if IDF_TARGET_ESP32
+        default 36 if IDF_TARGET_ESP32S2
+        default 1 if IDF_TARGET_ESP32S3
+    config GPIO_G
+        int "GPIO for Green"
+        range 0 39
+        default 4 if IDF_TARGET_ESP32
+        default 35 if IDF_TARGET_ESP32S2
+        default 2 if IDF_TARGET_ESP32S3
+    config GPIO_B
+        int "GPIO for Blue"
+        range 0 39
+        default 17 if IDF_TARGET_ESP32
+        default 37 if IDF_TARGET_ESP32S2
+        default 16 if IDF_TARGET_ESP32S3
+endmenu
+
+menu "LED Strip Configuration"
+    config LED_STRIP_RESOLUTION_HZ
+        int "Resolution for LED strip"
+    default 10000000
+    config STRIP_GPIO_NUM
+        int "GPIO number for LED Stip"
+        range 0 39
+        default 18
+    config STRIP_LED_NUM
+        int "number of LEDs"
+        default 49
+    config STRIP_INTV
+        int "interval of changing in ms"
+        default 100
+endmenu
+
+menu "Battery for Night Lamp"
+    config BATTERY_IN_USE
+        bool  "Using Battery"
+        default n
+    if BATTERY_IN_USE
+        config BAT_ADC_CHANNEL
+            int "Channel Number for Battery ADC"
+            range  0 15
+            default 0 if IDF_TARGET_ESP32
+            default 3 if IDF_TARGET_ESP32S2
+            default 7 if IDF_TARGET_ESP32S3
+        config GPIO_BAT_CHRG
+            int "GPIO for Battery Charge"
+            range 0 39
+            default 34 if IDF_TARGET_ESP32
+            default 6 if IDF_TARGET_ESP32S2
+            default -1 if IDF_TARGET_ESP32S3
+        config GPIO_BAT_STBY
+            int "GPIO for Battery Standby"
+            range 0 39
+            default 35 if IDF_TARGET_ESP32
+            default 7 if IDF_TARGET_ESP32S2
+            default -1 if IDF_TARGET_ESP32S3
+    endif
+endmenu
+
+menu "Microphone for Night Lamp"
+    config DMIC_IN_USE
+        bool  "Using Digital Micrphone"
+        default n
+    if DMIC_IN_USE
+        config DMIC_I2S_SCK
+            int "GPIO for I2C SCK"
+            range 0 39
+            default 32 if IDF_TARGET_ESP32
+            default 15 if IDF_TARGET_ESP32S2
+            default 39 if IDF_TARGET_ESP32S3
+        config DMIC_I2S_WS
+            int "GPIO for I2C WS"
+            range 0 39
+            default 33 if IDF_TARGET_ESP32
+            default 16 if IDF_TARGET_ESP32S2
+            default 30 if IDF_TARGET_ESP32S3
+        config DMIC_I2S_SDO
+            int "GPIO for I2C SDO"
+            range 0 39
+            default 25 if IDF_TARGET_ESP32
+            default 17 if IDF_TARGET_ESP32S2
+            default 40 if IDF_TARGET_ESP32S3
+    endif
+endmenu
+
+endmenu
