@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-11-29 10:46:27
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-11-29 23:08:10
+ * @LastEditTime: 2024-11-30 14:37:14
  * @FilePath    : /shellhome-nightlamp/main/board_leds.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -15,6 +15,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "esp_attr.h"
 #include "driver/ledc.h"
 
@@ -42,6 +43,9 @@ typedef enum {
 } LAMP_MODE_ENUM;
 
 #define LAMP_MODE_MASK ((1<<2)-1)
+
+#define SAVE_TIMER_MS (3*60*1000)
+#define OFF_TIMER_MS (30*60*1000)
 
 /**
 * @brief Declare of LED rgb Type
@@ -183,6 +187,8 @@ typedef struct {
     led_rgb_t *              top_led;
     led_strip_handle_t     led_strip;
     nvs_handle_t          nvs_handle;
+    esp_timer_handle_t    save_timer;
+    esp_timer_handle_t     off_timer;
     uint32_t                   index;
     uint32_t                   count;
     LAMP_MODE_ENUM         lamp_mode;
@@ -457,19 +463,125 @@ static esp_err_t all_clear(void) {
     return led_strip_clear(g_lamp.led_strip);
 }
 
-static esp_err_t save_mod_to_nvs(void) {
-    esp_err_t err = nvs_set_u8(g_lamp.nvs_handle, TAG, (uint8_t)g_lamp.lamp_mode);
-    nvs_commit(g_lamp.nvs_handle);
-    ESP_LOGI(TAG, "Save MOD");
-    return err;
-}
-
 static void random_color(void) {
     /**< Set a random color */
     g_lamp.hue = esp_random() / 11930465;
     g_lamp.saturation = esp_random() / 42949673;
     g_lamp.saturation = g_lamp.saturation < 40 ? 40 : (g_lamp.saturation > 100 ? 100 :g_lamp.saturation);
     g_lamp.value = 100;
+}
+
+static esp_err_t save_mod_to_nvs(void) {
+    esp_err_t err = nvs_set_u8(g_lamp.nvs_handle, "lamp-mode",
+                            (uint8_t)g_lamp.lamp_mode);
+    ESP_ERROR_CHECK(err);
+    ESP_LOGI(TAG, "Save mode");
+    return nvs_commit(g_lamp.nvs_handle);
+}
+
+static esp_err_t load_mod_from_nvs(void) {
+    esp_err_t err = nvs_get_u8(g_lamp.nvs_handle, "lamp-mode",
+                            (uint8_t *)&g_lamp.lamp_mode);
+    if (ESP_ERR_NVS_NOT_FOUND == err) {
+        // set default and save
+        g_lamp.lamp_mode = LAMP_MODE_MARQUEE;
+        err = save_mod_to_nvs();
+    }
+    ESP_LOGI(TAG, "Load mode");
+    return err;
+}
+
+static esp_err_t save_hvs_to_nvs(void) {
+    esp_err_t err = nvs_set_u16(g_lamp.nvs_handle, "lamp-h", g_lamp.hue);
+    ESP_ERROR_CHECK(err);
+    err = nvs_set_u8(g_lamp.nvs_handle, "lamp-s", g_lamp.saturation);
+    ESP_ERROR_CHECK(err);
+    err = nvs_set_u8(g_lamp.nvs_handle, "lamp-v", g_lamp.value);
+    ESP_ERROR_CHECK(err);
+    ESP_LOGI(TAG, "Save mode");
+    return nvs_commit(g_lamp.nvs_handle);
+}
+
+static esp_err_t load_hvs_from_nvs(void) {
+    bool changed = pdFALSE;
+
+    esp_err_t err = nvs_get_u16(g_lamp.nvs_handle, "lamp-h",
+                            &g_lamp.hue);
+    if (ESP_ERR_NVS_NOT_FOUND == err) {
+        // set default and save
+        random_color();
+        changed = pdTRUE;
+        err = ESP_OK;
+    }
+    ESP_ERROR_CHECK(err);
+    err = nvs_get_u8(g_lamp.nvs_handle, "lamp-s",
+                            &g_lamp.saturation);
+    if (ESP_ERR_NVS_NOT_FOUND == err) {
+        // set default and save
+        g_lamp.saturation = 100;
+        err = ESP_OK;
+        changed = pdTRUE;
+    }
+    ESP_ERROR_CHECK(err);
+    err = nvs_get_u8(g_lamp.nvs_handle, "lamp-v",
+                            &g_lamp.value);
+    if (ESP_ERR_NVS_NOT_FOUND == err) {
+        // set default and save
+        g_lamp.value = 100;
+        err = ESP_OK;
+        changed = pdTRUE;
+    }
+
+    if (changed) err = save_hvs_to_nvs();   // save change
+    ESP_LOGI(TAG, "Load hsv");
+    return err;
+}
+
+static void save_timer_cb(void *args) {
+    save_mod_to_nvs();
+    save_hvs_to_nvs();
+}
+
+static void reset_save_timer(void) {
+    if (NULL == g_lamp.save_timer) {
+        // create timer
+        esp_timer_create_args_t save_cnf = {
+            .arg = NULL,
+            .callback = save_timer_cb,
+            .dispatch_method = ESP_TIMER_TASK
+        };
+
+        esp_timer_create(&save_cnf, &g_lamp.save_timer);
+        esp_timer_start_once(g_lamp.save_timer, SAVE_TIMER_MS);
+        ESP_LOGI(TAG, "create save timer");
+    } else {
+        // restart
+        esp_timer_restart(g_lamp.save_timer, SAVE_TIMER_MS);
+        ESP_LOGI(TAG, "restart save timer");
+    }
+}
+
+static void off_timer_cb(void *args) {
+    all_clear();
+}
+
+static void reset_off_timer(void) {
+    if (NULL == g_lamp.off_timer) {
+        // create timer
+        esp_timer_create_args_t off_cnf = {
+            .arg = NULL,
+            .callback = off_timer_cb,
+            .dispatch_method = ESP_TIMER_TASK
+        };
+
+        esp_timer_create(&off_cnf, &g_lamp.off_timer);
+        esp_timer_start_once(g_lamp.off_timer, OFF_TIMER_MS);
+        ESP_LOGI(TAG, "create off timer");
+    } else {
+        // restart
+        esp_timer_restart(g_lamp.off_timer, OFF_TIMER_MS);
+        ESP_LOGI(TAG, "restart off timer");
+    }
 }
 
 static void leds_task(void *pvParameters) {
@@ -486,20 +598,22 @@ static void leds_task(void *pvParameters) {
             g_lamp.count = CONFIG_STRIP_LED_NUM + 1; // LED at the top
             g_lamp.increased = pdTRUE;
             g_lamp.index = 0;
-            // TODO save mode with timer
+            // reset save timer
+            reset_save_timer();
             ESP_LOGI(TAG, "mode changed to %d", g_lamp.lamp_mode);
         } else if (bits & EVENT_COLOR_BITS) {
             // change color
             if (LAMP_MODE_MARQUEE != g_lamp.lamp_mode) {
                 random_color();
-                // TODO save hsv with timer
+                // reset save timer
+                reset_save_timer();
                 ESP_LOGI(TAG, "next random");
             } else {
                 ESP_LOGE(TAG, "can't change color at this mode");
             }
         } else if (bits & EVENT_TIMER_BITS) {
-            // TODO
-            ESP_LOGI(TAG, "Timer reset");
+            reset_off_timer();
+            ESP_LOGI(TAG, "Timer off reset");
         } else {
             ESP_LOGE(TAG, "Unknown Bit set %d", (int)bits);
         }
@@ -524,15 +638,11 @@ esp_err_t leds_init(void) {
 
     // load Mode
     ESP_LOGI(TAG, "load ...");
-    err = nvs_get_u8(g_lamp.nvs_handle, TAG, (uint8_t *)&g_lamp.lamp_mode);
-    if (ESP_ERR_NVS_NOT_FOUND == err) {
-        // set default and save
-        g_lamp.lamp_mode = LAMP_MODE_MARQUEE;
-        err = save_mod_to_nvs();
-    }
+    err = load_mod_from_nvs();
     ESP_ERROR_CHECK(err);
-    // TODO load hsv
-    random_color();
+    // load hsv
+    err = load_hvs_from_nvs();
+    ESP_ERROR_CHECK(err);
 
     ESP_LOGI(TAG, "init top led");
     /**< configure top led driver */

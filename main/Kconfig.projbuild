@@ -51,7 +51,7 @@ menu "LED Strip Configuration"
         default 18
     config STRIP_LED_NUM
         int "number of LEDs"
-        default 49
+        default 47
     config STRIP_INTV
         int "interval of changing in ms"
         default 100
